@@ -6,23 +6,85 @@
 #include <sstream>
 #include <vector>
 
+#define C_SEUIL -0.01
+
 float norme(std::vector<float> n){
     return std::sqrt(std::pow(n[0], 2) + std::pow(n[1], 2) + std::pow(n[2], 2));
 }
 
-int recv_vertice_index(std::string &line){
+// Fonction pour calculer le déterminant d'une matrice 2x2
+float determinant2x2(float a, float b, float c, float d) {
+    return a * d - b * c;
+}
+
+// Fonction pour calculer le déterminant d'une matrice 3x3
+float determinant3x3(float matrix[9]) {
+    return matrix[0] * determinant2x2(matrix[4], matrix[5], matrix[7], matrix[8]) -
+           matrix[1] * determinant2x2(matrix[3], matrix[5], matrix[6], matrix[8]) +
+           matrix[2] * determinant2x2(matrix[3], matrix[4], matrix[6], matrix[7]);
+}
+
+// Fonction pour calculer l'inverse d'une matrice 3x3
+int inverse3x3(float matrix[9], float inverse[9]) {
+    float det = determinant3x3(matrix);
+    if (std::abs(det) < 1e-6) {
+        return 1;
+    }
+    
+    inverse[0] = determinant2x2(matrix[4], matrix[5], matrix[7], matrix[8]) / det;
+    inverse[1] = -determinant2x2(matrix[1], matrix[2], matrix[7], matrix[8]) / det;
+    inverse[2] = determinant2x2(matrix[1], matrix[2], matrix[4], matrix[5]) / det;
+    inverse[3] = -determinant2x2(matrix[3], matrix[5], matrix[6], matrix[8]) / det;
+    inverse[4] = determinant2x2(matrix[0], matrix[2], matrix[6], matrix[8]) / det;
+    inverse[5] = -determinant2x2(matrix[0], matrix[2], matrix[3], matrix[5]) / det;
+    inverse[6] = determinant2x2(matrix[3], matrix[4], matrix[6], matrix[7]) / det;
+    inverse[7] = -determinant2x2(matrix[0], matrix[1], matrix[6], matrix[7]) / det;
+    inverse[8] = determinant2x2(matrix[0], matrix[1], matrix[3], matrix[4]) / det;
+
+    return 0;
+}
+
+
+int recv_vertice_index(std::string &line, int index = 0){
     int taille = line.size();
 
     std::string tmp = "";
+
+    int ind = -1;
 
     for(int i = 0; i < taille; i++){
         if(line[i] != '/'){
             tmp += line[i];
         }else{
-            break;
+            ind++;
+            if(ind == index){
+                break;
+            }else{
+                tmp="";
+            }
         }
     }
     return std::stoi(tmp)-1;
+}
+
+float profondeur_z(float z0, float z1, float z2){
+    return (z0+z1+z2)/3;
+}
+
+TGAColor getColor(std::vector<float> n, std::vector<int> t1, std::vector<int> t2, std::vector<int> t3, float alpha, float beta, float gamma, TGAImage &textureMap){
+
+    std::vector<float> lightdir = {0, 0, 1};
+    float dot = n[0]*lightdir[0] + n[1]*lightdir[1] + n[2]*lightdir[2];
+    dot = std::max(0.3f, dot);
+
+    TGAColor color = textureMap.get(t1[0]*alpha + t2[0]*beta + t3[0]*gamma, t1[1]*alpha + t2[1]*beta + t3[1]*gamma);
+
+    return {
+        (u_int8_t)floor(color[0] * dot),
+        (u_int8_t)floor(color[1] * dot),
+        (u_int8_t)floor(color[2] * dot),
+        (u_int8_t)floor(color[3] * dot),
+    };
 }
 
 void draw_line(int x0, int y0, int x1, int y1, TGAImage &image, TGAColor color){
@@ -64,42 +126,42 @@ void draw_triangle(int x0, int y0, int x1, int y1, int x2, int y2, TGAImage &ima
 /**
  * @brief Draw a filled triangle
  */ 
- void draw_filled_triangle(int x0, int y0, int x1, int y1, int x2, int y2, TGAImage &image, TGAColor color){
-    //Mise à l'origine du triangle
-    std::vector<int> b = { x1-x0, y1-y0 };
-    std::vector<int> c = { x2-x0, y2-y0 };
-    
-    float sb = 1.;
-    float sc = 1.;
-    if(b[0]!=0 || b[1]!=0){
-        sb = 1/(std::sqrt(std::pow(b[0], 2) + std::pow(b[1], 2)));
-    }
+void draw_filled_triangle(int x0, int y0, int x1, int y1, int x2, int y2, TGAImage &image,
+std::vector<int> t1, std::vector<int> t2, std::vector<int> t3, TGAImage &textureMap,
+std::vector<float> n1, std::vector<float> n2, std::vector<float> n3, int* zbuffer, 
+float z0, float z1, float z2){
 
-    if(c[0]!=0 || c[1]!=0){
-        sc = 1/(std::sqrt(std::pow(c[0], 2) + std::pow(c[1], 2)));
-    }
+    std::vector<int> coinGauche = {std::min(x0, std::min(x1, x2)), std::min(y0, std::min(y1, y2))};
+    std::vector<int> coinDroit = {std::max(x0, std::max(x1, x2)), std::max(y0, std::max(y1, y2))};
 
-    std::vector<std::vector<int>> points = {  };
+    float mat[9] = { (float)x0, (float)x1, (float)x2, (float)y0, (float)y1, (float)y2, 1., 1., 1. };
+    float matInverse[9];
 
-    float i = 0.;
-    while(i<=1.){
-        float j = 0.;
-        float ji = j+i;
-        while(j<=1. && ji<=1. && ji >= 0.){
-            if(i+j<=1.){
-                points.push_back({(int)std::floor(i*b[0]+j*c[0]), (int)std::floor(i*b[1]+j*c[1])});
-            }
-            j+=sc;
+    if(inverse3x3(mat, matInverse)) return;
+
+    #pragma omp parallel for
+    for(int y = coinGauche[1]; y < coinDroit[1]; y++){
+        for(int x = coinGauche[0]; x <= coinDroit[0]; x++){
+            float alpha = matInverse[0] * x + matInverse[1] * y + matInverse[2];
+            float beta = matInverse[3] * x + matInverse[4] * y + matInverse[5];
+            float gamma = matInverse[6] * x + matInverse[7] * y + matInverse[8];
+            if((alpha >= C_SEUIL && beta >= C_SEUIL && gamma >= C_SEUIL) || (alpha <= C_SEUIL && beta <= C_SEUIL && gamma <= C_SEUIL) && (alpha != C_SEUIL || beta != C_SEUIL || gamma != C_SEUIL)){
+                float z = alpha * z0 + beta * z1 + gamma * z2;
+                if(zbuffer[x+y*image.width()] < z){
+                    zbuffer[x+y*image.width()] = z;
+                    std::vector<float> n = {n1[0]*alpha+n2[0]*beta+n3[0]*gamma, n1[1]*alpha+n2[1]*beta+n3[1]*gamma, n1[2]*alpha+n2[2]*beta+n3[2]*gamma};
+                    float no = norme(n);
+                    n = {n[0]/no, n[1]/no, n[2]/no};
+                    
+                    //if(n[2] < 0) return;
+                    image.set(x, y, getColor(n, t1, t2, t3, alpha, beta, gamma, textureMap));  
+                }  
+            }              
         }
-        i+=sb;
-    }
-
-    for(int i = 0; i < points.size(); i++){
-        image.set(points[i][0]+x0, points[i][1]+y0, color);
     }
 }
 
-int objParser(std::string path, std::vector<std::vector<int>> &sommets, std::vector<std::vector<int>> &faces, std::vector<std::vector<float>> &normales, int width = 2048, int height = 2048){
+int objParser(std::string path, std::vector<std::vector<int>> &sommets, std::vector<std::vector<std::vector<int>>> &faces, std::vector<std::vector<float>> &normales, std::vector<std::vector<int>> &textures, TGAImage &textureMap, int width = 2048, int height = 2048){
     std::ifstream file(path);
 
     if (file.is_open()) {
@@ -114,15 +176,19 @@ int objParser(std::string path, std::vector<std::vector<int>> &sommets, std::vec
             if (label == "v") {
                 float x, y, z;
                 iss >> x >> y >> z;
-                sommets.push_back({(int)(x*(width/2)+width/2), (int)(y*(height/2)+height/2), 0});
+                sommets.push_back({(int)(x*(width/2)+width/2), (int)(y*(height/2)+height/2), (int)(z*100000)});
             } else if (label == "f"){
                 std::string v1, v2, v3;
                 iss >> v1 >> v2 >> v3;
-                faces.push_back({recv_vertice_index(v1), recv_vertice_index(v2), recv_vertice_index(v3)});
+                faces.push_back({{recv_vertice_index(v1), recv_vertice_index(v1, 1)}, {recv_vertice_index(v2), recv_vertice_index(v2, 1)}, {recv_vertice_index(v3), recv_vertice_index(v3, 1)}});
             } else if (label == "vn"){
                 float x, y, z;
                 iss >> x >> y >> z;
                 normales.push_back({x, y, z});
+            } else if (label == "vt"){
+                float x, y, z;
+                iss >> x >> y >> z;
+                textures.push_back({(int)floor(x*textureMap.width()), textureMap.height()-((int)floor(y*textureMap.height())), 0});
             } else {
                 if(label != "vt") std::cerr << "Error parsing line: " << line << std::endl;
             }
@@ -132,45 +198,63 @@ int objParser(std::string path, std::vector<std::vector<int>> &sommets, std::vec
         std::cerr << "Unable to open file." << std::endl;
         return 1;
     }
-}
 
-TGAColor getColor(std::vector<float> n1, std::vector<float> n2, std::vector<float> n3, TGAColor color){
-    std::vector<float> n = {n1[0]+n2[0]+n3[0], n1[1]+n2[1]+n3[1], n1[2]+n2[2]+n3[2]};
-    float no = norme(n);
-    n = {n[0]/no, n[1]/no, n[2]/no};
-
-    std::vector<float> lightdir = {0, 0, 1};
-    //std::cout << n[0] << " " << n[1] << " " << n[2] << std::endl;
-    float dot = n[0]*lightdir[0] + n[1]*lightdir[1] + n[2]*lightdir[2];
-    dot = std::max(0.4f, dot);
-    
-
-    return {
-        (std::uint8_t)(dot*color.bgra[0]),
-        (std::uint8_t)(dot*color.bgra[1]),
-        (std::uint8_t)(dot*color.bgra[2]),
-        color.bgra[3]
-    };
+    return 0;
 }
 
 
 int main()
 {
+    int model = 2;
+
     constexpr int width = 2048;
     constexpr int height = 2048;
     TGAColor white = {{255, 255, 255, 255}, 4};
     TGAColor red = {{0, 0, 255, 255}, 4};
+
+    std::string obj_path;
+    std::string texture_path;
+
+    if(model == 0){
+        obj_path = "../obj/african_head/african_head.obj";
+        texture_path = "../obj/african_head/african_head_diffuse.tga";
+    }else if(model == 1){
+        obj_path = "../obj/boggie/body.obj";
+        texture_path = "../obj/boggie/body_diffuse.tga";
+    }else{
+        obj_path = "../obj/diablo3_pose/diablo3_pose.obj";
+        texture_path = "../obj/diablo3_pose/diablo3_pose_diffuse.tga";
+    }
     
     TGAImage image(width, height, TGAImage::RGB);
 
-    std::vector<std::vector<int>> sommets;
-    std::vector<std::vector<int>> faces;
-    std::vector<std::vector<float>> normales;
+    int* zbuffer = (int*)malloc(width*height*sizeof(int));
+    for (int i = 0; i < width * height; i++) {
+        zbuffer[i] = -100000;
+    }
 
-    objParser("../obj/african_head/african_head.obj", sommets, faces, normales, width, height);   
+    //Loading texture map
+    TGAImage textureMap = TGAImage();
+    textureMap.read_tga_file(texture_path);
+
+    std::vector<std::vector<int>> sommets;
+    std::vector<std::vector<std::vector<int>>> faces;
+    std::vector<std::vector<float>> normales;
+    std::vector<std::vector<int>> textures;
+
+    objParser(obj_path, sommets, faces, normales, textures, textureMap, width, height);
 
     for(int i = 0; i<faces.size(); i++){
-        draw_filled_triangle(sommets[faces[i][0]][0], sommets[faces[i][0]][1], sommets[faces[i][1]][0], sommets[faces[i][1]][1], sommets[faces[i][2]][0], sommets[faces[i][2]][1], image, getColor(normales[faces[i][0]], normales[faces[i][1]], normales[faces[i][2]],  {{(std::uint8_t)std::rand(), (std::uint8_t)std::rand(), (std::uint8_t)std::rand(), 255}, 4}));
+        draw_filled_triangle(
+            sommets[faces[i][0][0]][0], sommets[faces[i][0][0]][1], 
+            sommets[faces[i][1][0]][0], sommets[faces[i][1][0]][1], 
+            sommets[faces[i][2][0]][0], sommets[faces[i][2][0]][1], 
+            image, 
+            textures[faces[i][0][1]], textures[faces[i][1][1]], textures[faces[i][2][1]], textureMap,
+            normales[faces[i][0][0]], normales[faces[i][1][0]], normales[faces[i][2][0]], 
+            zbuffer,
+            sommets[faces[i][0][0]][2], sommets[faces[i][1][0]][2], sommets[faces[i][2][0]][2]
+        );
     }
 
     image.write_tga_file("test_out.tga", true, false);
