@@ -78,6 +78,7 @@ TGAColor getColor(std::vector<float> n, std::vector<int> t1, std::vector<int> t2
     dot = std::max(0.3f, dot);
 
     TGAColor color = textureMap.get(t1[0]*alpha + t2[0]*beta + t3[0]*gamma, t1[1]*alpha + t2[1]*beta + t3[1]*gamma);
+    //TGAColor color = {{255, 255, 255, 255}, 4};
 
     return {
         (u_int8_t)floor(color[0] * dot),
@@ -131,6 +132,10 @@ std::vector<int> t1, std::vector<int> t2, std::vector<int> t3, TGAImage &texture
 std::vector<float> n1, std::vector<float> n2, std::vector<float> n3, int* zbuffer, 
 float z0, float z1, float z2){
 
+    if(x0 > image.width() || y0 > image.height() || x1 > image.width() || y1 > image.height() || x2 > image.width() || y2 > image.height()
+    || x0 < 0 || y0 < 0 || x1 < 0 || y1 < 0 || x2 < 0 || y2 < 0)
+    return;
+
     std::vector<int> coinGauche = {std::min(x0, std::min(x1, x2)), std::min(y0, std::min(y1, y2))};
     std::vector<int> coinDroit = {std::max(x0, std::max(x1, x2)), std::max(y0, std::max(y1, y2))};
 
@@ -161,7 +166,7 @@ float z0, float z1, float z2){
     }
 }
 
-int objParser(std::string path, std::vector<std::vector<int>> &sommets, std::vector<std::vector<std::vector<int>>> &faces, std::vector<std::vector<float>> &normales, std::vector<std::vector<int>> &textures, TGAImage &textureMap, int width = 2048, int height = 2048){
+int objParser(std::string path, std::vector<std::vector<float>> &sommets, std::vector<std::vector<std::vector<int>>> &faces, std::vector<std::vector<float>> &normales, std::vector<std::vector<int>> &textures, TGAImage &textureMap, int width = 2048, int height = 2048){
     std::ifstream file(path);
 
     if (file.is_open()) {
@@ -172,11 +177,14 @@ int objParser(std::string path, std::vector<std::vector<int>> &sommets, std::vec
 
             iss >> label;
 
+            double angle = 4;
+
             // Parsing
             if (label == "v") {
                 float x, y, z;
                 iss >> x >> y >> z;
-                sommets.push_back({(int)(x*(width/2)+width/2), (int)(y*(height/2)+height/2), (int)(z*100000)});
+                //sommets.push_back({(int)(x*(width/2)+width/2), (int)(y*(height/2)+height/2), (int)(z*height)});
+                sommets.push_back({(float)(x*cos(angle) - z*sin(angle)), y, (float)(x*sin(angle) + z*cos(angle))});
             } else if (label == "f"){
                 std::string v1, v2, v3;
                 iss >> v1 >> v2 >> v3;
@@ -184,7 +192,7 @@ int objParser(std::string path, std::vector<std::vector<int>> &sommets, std::vec
             } else if (label == "vn"){
                 float x, y, z;
                 iss >> x >> y >> z;
-                normales.push_back({x, y, z});
+                normales.push_back({(float)(x*cos(angle) - z*sin(angle)), y, (float)(x*sin(angle) + z*cos(angle))});
             } else if (label == "vt"){
                 float x, y, z;
                 iss >> x >> y >> z;
@@ -202,10 +210,22 @@ int objParser(std::string path, std::vector<std::vector<int>> &sommets, std::vec
     return 0;
 }
 
+std::vector<int> to_perspective(std::vector<float> sommet, double tanAby2, int width, int height){
+
+    float newX = sommet[0]/(((sommet[2]-3))*tanAby2);
+    float newY = -sommet[1]/(((sommet[2]-3))*tanAby2);
+
+    return {
+        (int)(newX*(width/2)+width/2),
+        (int)(newY*(height/2)+height/2),
+        (int)(sommet[2]*height)
+    };
+}
+
 
 int main()
 {
-    int model = 2;
+    int model = 0;
 
     constexpr int width = 2048;
     constexpr int height = 2048;
@@ -237,14 +257,27 @@ int main()
     TGAImage textureMap = TGAImage();
     textureMap.read_tga_file(texture_path);
 
+    std::vector<std::vector<float>> sommetsRelative;
     std::vector<std::vector<int>> sommets;
     std::vector<std::vector<std::vector<int>>> faces;
     std::vector<std::vector<float>> normales;
     std::vector<std::vector<int>> textures;
 
-    objParser(obj_path, sommets, faces, normales, textures, textureMap, width, height);
+    objParser(obj_path, sommetsRelative, faces, normales, textures, textureMap, width, height);
 
+    double fov = M_PI/4.;
+    double tanAby2 = tan(fov/2);
+    std::cout << tanAby2 << std::endl;
+
+    for(int i = 0; i < sommetsRelative.size(); i++){
+        sommets.push_back(to_perspective(sommetsRelative[i], tanAby2, width, height));
+        //std::cout << sommets[i][0] << " " << sommets[i][1] << " " << sommets[i][2] << std::endl;
+    } 
+
+    std::cout << faces.size() << std::endl;
     for(int i = 0; i<faces.size(); i++){
+        //std::cout << i << std::endl;
+        //std::cout << sommets[faces[i][0][0]][0] << " " << sommets[faces[i][0][0]][1] << " " << sommets[faces[i][0][0]][2] << std::endl;
         draw_filled_triangle(
             sommets[faces[i][0][0]][0], sommets[faces[i][0][0]][1], 
             sommets[faces[i][1][0]][0], sommets[faces[i][1][0]][1], 
