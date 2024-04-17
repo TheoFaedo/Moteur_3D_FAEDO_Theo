@@ -1,4 +1,5 @@
 #include "tgaimage.h"
+#include "geometry.h"
 #include <cmath>
 #include <iostream>
 #include <fstream>
@@ -12,39 +13,9 @@ float norme(std::vector<float> n){
     return std::sqrt(std::pow(n[0], 2) + std::pow(n[1], 2) + std::pow(n[2], 2));
 }
 
-// Fonction pour calculer le déterminant d'une matrice 2x2
-float determinant2x2(float a, float b, float c, float d) {
-    return a * d - b * c;
-}
-
-// Fonction pour calculer le déterminant d'une matrice 3x3
-float determinant3x3(float matrix[9]) {
-    return matrix[0] * determinant2x2(matrix[4], matrix[5], matrix[7], matrix[8]) -
-           matrix[1] * determinant2x2(matrix[3], matrix[5], matrix[6], matrix[8]) +
-           matrix[2] * determinant2x2(matrix[3], matrix[4], matrix[6], matrix[7]);
-}
-
-// Fonction pour calculer l'inverse d'une matrice 3x3
-int inverse3x3(float matrix[9], float inverse[9]) {
-    float det = determinant3x3(matrix);
-    if (std::abs(det) < 1e-6) {
-        return 1;
-    }
-    
-    inverse[0] = determinant2x2(matrix[4], matrix[5], matrix[7], matrix[8]) / det;
-    inverse[1] = -determinant2x2(matrix[1], matrix[2], matrix[7], matrix[8]) / det;
-    inverse[2] = determinant2x2(matrix[1], matrix[2], matrix[4], matrix[5]) / det;
-    inverse[3] = -determinant2x2(matrix[3], matrix[5], matrix[6], matrix[8]) / det;
-    inverse[4] = determinant2x2(matrix[0], matrix[2], matrix[6], matrix[8]) / det;
-    inverse[5] = -determinant2x2(matrix[0], matrix[2], matrix[3], matrix[5]) / det;
-    inverse[6] = determinant2x2(matrix[3], matrix[4], matrix[6], matrix[7]) / det;
-    inverse[7] = -determinant2x2(matrix[0], matrix[1], matrix[6], matrix[7]) / det;
-    inverse[8] = determinant2x2(matrix[0], matrix[1], matrix[3], matrix[4]) / det;
-
-    return 0;
-}
-
-
+/**
+ * @brief Recupere l'index d'un sommet
+*/
 int recv_vertice_index(std::string &line, int index = 0){
     int taille = line.size();
 
@@ -65,10 +36,6 @@ int recv_vertice_index(std::string &line, int index = 0){
         }
     }
     return std::stoi(tmp)-1;
-}
-
-float profondeur_z(float z0, float z1, float z2){
-    return (z0+z1+z2)/3;
 }
 
 TGAColor getColor(std::vector<float> n, std::vector<int> t1, std::vector<int> t2, std::vector<int> t3, float alpha, float beta, float gamma, TGAImage &textureMap){
@@ -139,17 +106,20 @@ float z0, float z1, float z2){
     std::vector<int> coinGauche = {std::min(x0, std::min(x1, x2)), std::min(y0, std::min(y1, y2))};
     std::vector<int> coinDroit = {std::max(x0, std::max(x1, x2)), std::max(y0, std::max(y1, y2))};
 
-    float mat[9] = { (float)x0, (float)x1, (float)x2, (float)y0, (float)y1, (float)y2, 1., 1., 1. };
-    float matInverse[9];
+    mat<3,3> ma = {
+        vec<3>{(double)x0, (double)x1, (double)x2},
+        vec<3>{(double)y0, (double)y1, (double)y2},
+        vec<3>{1., 1., 1.}
+    };
 
-    if(inverse3x3(mat, matInverse)) return;
+    mat<3,3> matInverse = ma.invert();
 
     #pragma omp parallel for
     for(int y = coinGauche[1]; y < coinDroit[1]; y++){
         for(int x = coinGauche[0]; x <= coinDroit[0]; x++){
-            float alpha = matInverse[0] * x + matInverse[1] * y + matInverse[2];
-            float beta = matInverse[3] * x + matInverse[4] * y + matInverse[5];
-            float gamma = matInverse[6] * x + matInverse[7] * y + matInverse[8];
+            float alpha = matInverse[0][0] * x + matInverse[0][1] * y + matInverse[0][2];
+            float beta = matInverse[1][0] * x + matInverse[1][1] * y + matInverse[1][2];
+            float gamma = matInverse[2][0] * x + matInverse[2][1] * y + matInverse[2][2];
             if((alpha >= C_SEUIL && beta >= C_SEUIL && gamma >= C_SEUIL) || (alpha <= C_SEUIL && beta <= C_SEUIL && gamma <= C_SEUIL) && (alpha != C_SEUIL || beta != C_SEUIL || gamma != C_SEUIL)){
                 float z = alpha * z0 + beta * z1 + gamma * z2;
                 if(zbuffer[x+y*image.width()] < z){
@@ -158,7 +128,7 @@ float z0, float z1, float z2){
                     float no = norme(n);
                     n = {n[0]/no, n[1]/no, n[2]/no};
                     
-                    //if(n[2] < 0) return;
+                    if(n[2] < 0) return;
                     image.set(x, y, getColor(n, t1, t2, t3, alpha, beta, gamma, textureMap));  
                 }  
             }              
@@ -177,7 +147,7 @@ int objParser(std::string path, std::vector<std::vector<float>> &sommets, std::v
 
             iss >> label;
 
-            double angle = 4;
+            double angle = 0.5;
 
             // Parsing
             if (label == "v") {
@@ -198,7 +168,7 @@ int objParser(std::string path, std::vector<std::vector<float>> &sommets, std::v
                 iss >> x >> y >> z;
                 textures.push_back({(int)floor(x*textureMap.width()), textureMap.height()-((int)floor(y*textureMap.height())), 0});
             } else {
-                if(label != "vt") std::cerr << "Error parsing line: " << line << std::endl;
+                if(label != "#" && label != "") std::cerr << "Error parsing line: " << line << std::endl;
             }
         }
         file.close();
@@ -227,8 +197,8 @@ int main()
 {
     int model = 0;
 
-    constexpr int width = 2048;
-    constexpr int height = 2048;
+    constexpr int width = 1024;
+    constexpr int height = 1024;
     TGAColor white = {{255, 255, 255, 255}, 4};
     TGAColor red = {{0, 0, 255, 255}, 4};
 
@@ -246,8 +216,10 @@ int main()
         texture_path = "../obj/diablo3_pose/diablo3_pose_diffuse.tga";
     }
     
+    //Initialisation de l'image
     TGAImage image(width, height, TGAImage::RGB);
 
+    //Initialisation du zbuffer
     int* zbuffer = (int*)malloc(width*height*sizeof(int));
     for (int i = 0; i < width * height; i++) {
         zbuffer[i] = -100000;
@@ -257,27 +229,28 @@ int main()
     TGAImage textureMap = TGAImage();
     textureMap.read_tga_file(texture_path);
 
+    //Création des listes de sommets, normales, textures et faces
     std::vector<std::vector<float>> sommetsRelative;
     std::vector<std::vector<int>> sommets;
     std::vector<std::vector<std::vector<int>>> faces;
     std::vector<std::vector<float>> normales;
     std::vector<std::vector<int>> textures;
-
+    
+    //Parsing du fichier obj
     objParser(obj_path, sommetsRelative, faces, normales, textures, textureMap, width, height);
 
+    //Création de la valeur de FOV
     double fov = M_PI/4.;
     double tanAby2 = tan(fov/2);
-    std::cout << tanAby2 << std::endl;
 
+    //Transformation en vecteurs perspective
     for(int i = 0; i < sommetsRelative.size(); i++){
         sommets.push_back(to_perspective(sommetsRelative[i], tanAby2, width, height));
-        //std::cout << sommets[i][0] << " " << sommets[i][1] << " " << sommets[i][2] << std::endl;
     } 
 
+    //Dessin du maillage sur le plan de l'écran
     std::cout << faces.size() << std::endl;
     for(int i = 0; i<faces.size(); i++){
-        //std::cout << i << std::endl;
-        //std::cout << sommets[faces[i][0][0]][0] << " " << sommets[faces[i][0][0]][1] << " " << sommets[faces[i][0][0]][2] << std::endl;
         draw_filled_triangle(
             sommets[faces[i][0][0]][0], sommets[faces[i][0][0]][1], 
             sommets[faces[i][1][0]][0], sommets[faces[i][1][0]][1], 
@@ -290,6 +263,7 @@ int main()
         );
     }
 
+    //Sauvegarde de l'image
     image.write_tga_file("test_out.tga", true, false);
     return 0;
 }
