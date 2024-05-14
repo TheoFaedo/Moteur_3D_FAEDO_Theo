@@ -13,7 +13,7 @@ Le moteur est conçu pour fonction via le CPU et n'est donc pas adapté pour du 
 
 - lecture de fichiers .obj avec leur texture associée
 - éclairage ambiant
-- éclairage speculaire
+- ombrage diffus
 - affichage des triangles du modèle
 - texture 
 - utilisation d'un z-buffer
