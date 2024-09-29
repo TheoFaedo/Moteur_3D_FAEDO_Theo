@@ -1,4 +1,4 @@
-# Moteur_3D_FAEDO_Theo
+# Projet de Master sur la création d'un moteur 3D
 
 ## Auteur
 Théo FAEDO
@@ -7,7 +7,7 @@ Théo FAEDO
 
 Ce programme est un petit moteur 3D permettant rendre un objet 3D texturés (à partir d'un fichier .obj et d'une texture tga).
 
-Le moteur est conçu pour fonction via le CPU et n'est donc pas adapté pour du temps réel.
+Le moteur est conçu pour fonctionner via le CPU et n'est donc pas adapté pour du temps réel.
 
 ### Fonctionnalités
 
